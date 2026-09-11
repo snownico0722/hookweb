@@ -10,6 +10,7 @@ import io.github.snownico0722.hookweb.model.EngineKind;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -60,10 +61,6 @@ public final class ScanHistoryStore {
             this.scannedApps = scannedApps;
             this.totalApps = totalApps;
             this.results = Collections.unmodifiableList(new ArrayList<>(results));
-        }
-
-        public boolean isFinished() {
-            return COMPLETED.equals(status) || STOPPED.equals(status) || FAILED.equals(status);
         }
 
         public String displayTitle() {
@@ -147,8 +144,14 @@ public final class ScanHistoryStore {
     private Snapshot read(File file) {
         try {
             byte[] bytes;
-            try (FileInputStream input = new AtomicFile(file).openRead()) {
-                bytes = input.readAllBytes();
+            try (FileInputStream input = new AtomicFile(file).openRead();
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) >= 0) {
+                    output.write(buffer, 0, count);
+                }
+                bytes = output.toByteArray();
             }
             return fromJson(new JSONObject(new String(bytes, StandardCharsets.UTF_8)));
         } catch (Throwable ignored) {
