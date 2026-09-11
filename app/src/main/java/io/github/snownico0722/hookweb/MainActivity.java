@@ -73,6 +73,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         super.onCreate(savedInstanceState);
         rootShell = new RootShell(this);
         historyStore = new ScanHistoryStore(this);
+        adapter = new AppListAdapter(this);
         buildUi();
         updateSystemWebViewStatus();
         loadLatestHistory();
@@ -222,7 +223,6 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         ));
 
         ListView list = new ListView(this);
-        adapter = new AppListAdapter(this);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> showDetails(adapter.getItem(position)));
         root.addView(list, new LinearLayout.LayoutParams(
@@ -253,8 +253,9 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
     private void loadLatestHistory() {
         worker.execute(() -> {
-            ScanHistoryStore.Snapshot latest = historyStore.loadLatest();
-            int historyCount = historyStore.list().size();
+            List<ScanHistoryStore.Snapshot> snapshots = historyStore.list();
+            ScanHistoryStore.Snapshot latest = snapshots.isEmpty() ? null : snapshots.get(0);
+            int historyCount = snapshots.size();
             runOnUiThread(() -> {
                 historyButton.setText("历史记录" + (historyCount > 0 ? " (" + historyCount + ")" : ""));
                 if (latest == null) {
@@ -293,6 +294,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
     }
 
     private void runApkScan(ScanSession session) {
+        session.runner = Thread.currentThread();
         String finalStatus = ScanHistoryStore.COMPLETED;
         String failureMessage = null;
         ArrayList<AppScanResult> scanned = new ArrayList<>();
@@ -374,12 +376,17 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         } catch (CancellationException cancelled) {
             finalStatus = ScanHistoryStore.STOPPED;
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            finalStatus = ScanHistoryStore.STOPPED;
+            if (session.cancelled.get()) {
+                finalStatus = ScanHistoryStore.STOPPED;
+            } else {
+                finalStatus = ScanHistoryStore.FAILED;
+                failureMessage = "扫描协调线程被意外中断";
+            }
         } catch (Throwable t) {
             finalStatus = ScanHistoryStore.FAILED;
             failureMessage = t.getClass().getSimpleName() + (t.getMessage() == null ? "" : ": " + t.getMessage());
         } finally {
+            session.runner = null;
             ExecutorService pool = session.pool;
             if (pool != null) pool.shutdownNow();
         }
@@ -742,6 +749,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         final boolean includeSystem;
         final AtomicBoolean cancelled = new AtomicBoolean(false);
         volatile ExecutorService pool;
+        volatile Thread runner;
         volatile int total;
         volatile int scanned;
 
@@ -754,6 +762,8 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
             if (!cancelled.compareAndSet(false, true)) return;
             ExecutorService currentPool = pool;
             if (currentPool != null) currentPool.shutdownNow();
+            Thread currentRunner = runner;
+            if (currentRunner != null) currentRunner.interrupt();
         }
     }
 }
