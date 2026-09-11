@@ -19,10 +19,58 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class AppListAdapter extends BaseAdapter {
+    public enum FilterMode {
+        ALL("全部"),
+        WEB_CANDIDATE("有 Web 内核"),
+        ATTENTION("运行时第三方（建议关注）"),
+        RUNTIME("运行时已确认"),
+        SYSTEM_WEBVIEW("系统 WebView"),
+        TBS_X5("TBS / X5"),
+        UC_U4("UC / U4"),
+        XWEB("XWeb"),
+        GECKO_CEF("Gecko / CEF"),
+        UNKNOWN("未识别");
+
+        public final String label;
+
+        FilterMode(String label) {
+            this.label = label;
+        }
+
+        boolean matches(AppScanResult item) {
+            return switch (this) {
+                case ALL -> true;
+                case WEB_CANDIDATE -> item.hasWebEvidence();
+                case ATTENTION -> hasThirdPartyRuntime(item);
+                case RUNTIME -> item.hasRuntimeEvidence();
+                case SYSTEM_WEBVIEW -> item.engines().contains(EngineKind.SYSTEM_WEBVIEW);
+                case TBS_X5 -> item.engines().contains(EngineKind.TBS_X5);
+                case UC_U4 -> item.engines().contains(EngineKind.UC_U4);
+                case XWEB -> item.engines().contains(EngineKind.XWEB);
+                case GECKO_CEF -> item.engines().contains(EngineKind.GECKOVIEW)
+                        || item.engines().contains(EngineKind.CEF)
+                        || item.engines().contains(EngineKind.CROSSWALK)
+                        || item.engines().contains(EngineKind.BUNDLED_CHROMIUM);
+                case UNKNOWN -> !item.hasWebEvidence();
+            };
+        }
+
+        private static boolean hasThirdPartyRuntime(AppScanResult item) {
+            for (EngineEvidence evidence : item.evidence()) {
+                if (evidence.source != EngineEvidence.Source.STATIC_APK
+                        && evidence.engine != EngineKind.SYSTEM_WEBVIEW) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     private final Context context;
     private final List<AppScanResult> all = new ArrayList<>();
     private final List<AppScanResult> visible = new ArrayList<>();
     private String query = "";
+    private FilterMode filterMode = FilterMode.ALL;
 
     public AppListAdapter(Context context) {
         this.context = context;
@@ -37,6 +85,15 @@ public final class AppListAdapter extends BaseAdapter {
     public void setQuery(String query) {
         this.query = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         refilter();
+    }
+
+    public void setFilterMode(FilterMode mode) {
+        filterMode = mode == null ? FilterMode.ALL : mode;
+        refilter();
+    }
+
+    public FilterMode getFilterMode() {
+        return filterMode;
     }
 
     @Override
@@ -93,12 +150,13 @@ public final class AppListAdapter extends BaseAdapter {
     private void refilter() {
         visible.clear();
         for (AppScanResult item : all) {
-            if (query.isEmpty() || matches(item, query)) visible.add(item);
+            if (!filterMode.matches(item)) continue;
+            if (query.isEmpty() || matchesQuery(item, query)) visible.add(item);
         }
         notifyDataSetChanged();
     }
 
-    private static boolean matches(AppScanResult item, String query) {
+    private static boolean matchesQuery(AppScanResult item, String query) {
         if (item.label.toLowerCase(Locale.ROOT).contains(query)) return true;
         if (item.packageName.toLowerCase(Locale.ROOT).contains(query)) return true;
         for (EngineKind engine : item.engines()) {
