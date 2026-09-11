@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "io.github.snownico0722.hookweb"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.snownico0722.hookweb"
