@@ -18,6 +18,8 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -26,13 +28,20 @@ public final class ApkScanner {
 
     private final PackageManager packageManager;
     private final RootShell rootShell;
+    private final BooleanSupplier cancelled;
 
     public ApkScanner(Context context, RootShell rootShell) {
+        this(context, rootShell, () -> false);
+    }
+
+    public ApkScanner(Context context, RootShell rootShell, BooleanSupplier cancelled) {
         this.packageManager = context.getPackageManager();
         this.rootShell = rootShell;
+        this.cancelled = cancelled == null ? () -> false : cancelled;
     }
 
     public AppScanResult scan(ApplicationInfo info) {
+        checkCancelled();
         String label;
         try {
             label = String.valueOf(info.loadLabel(packageManager));
@@ -48,9 +57,11 @@ public final class ApkScanner {
         EnumMap<EngineKind, EngineEvidence> evidence = new EnumMap<>(EngineKind.class);
         ArrayList<String> errors = new ArrayList<>();
         for (String path : paths) {
+            checkCancelled();
             scanPath(path, evidence, errors);
         }
 
+        checkCancelled();
         EngineEvidence chromium = evidence.get(EngineKind.BUNDLED_CHROMIUM);
         if (chromium != null && !chromium.detail.contains("native:")) {
             evidence.remove(EngineKind.BUNDLED_CHROMIUM);
@@ -73,14 +84,21 @@ public final class ApkScanner {
     ) {
         File copied = null;
         try {
+            checkCancelled();
             try {
                 scanZip(sourcePath, sourcePath, evidence);
                 return;
+            } catch (CancellationException cancelled) {
+                throw cancelled;
             } catch (Throwable directFailure) {
+                checkCancelled();
                 copied = rootShell.makeReadableCopy(sourcePath);
+                checkCancelled();
                 if (copied == null) throw directFailure;
                 scanZip(copied.getAbsolutePath(), sourcePath, evidence);
             }
+        } catch (CancellationException cancelled) {
+            throw cancelled;
         } catch (Throwable t) {
             errors.add(new File(sourcePath).getName() + ": " + t.getClass().getSimpleName());
         } finally {
@@ -99,6 +117,7 @@ public final class ApkScanner {
         try (ZipFile zip = new ZipFile(readablePath)) {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
+                checkCancelled();
                 ZipEntry entry = entries.nextElement();
                 String entryName = entry.getName();
                 String lowerName = entryName.toLowerCase(Locale.ROOT);
@@ -119,7 +138,11 @@ public final class ApkScanner {
 
                 if (!isDex(entryName) || entry.isDirectory()) continue;
                 try (InputStream input = zip.getInputStream(entry)) {
-                    Map<EngineKind, String> found = BytePatternScanner.scan(input, MAX_DEX_BYTES_PER_ENTRY);
+                    Map<EngineKind, String> found = BytePatternScanner.scan(
+                            input,
+                            MAX_DEX_BYTES_PER_ENTRY,
+                            cancelled
+                    );
                     for (Map.Entry<EngineKind, String> item : found.entrySet()) {
                         EngineEvidence existing = evidence.get(item.getKey());
                         if (existing != null && item.getKey() == EngineKind.BUNDLED_CHROMIUM
@@ -134,6 +157,12 @@ public final class ApkScanner {
                     }
                 }
             }
+        }
+    }
+
+    private void checkCancelled() {
+        if (Thread.currentThread().isInterrupted() || cancelled.getAsBoolean()) {
+            throw new CancellationException("scan cancelled");
         }
     }
 
