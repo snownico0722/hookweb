@@ -83,7 +83,8 @@ LSPosed 服务未连接时，APK 静态扫描和 ROOT 运行时扫描仍然可�
 - Android Gradle Plugin 9.2.1
 - Gradle 9.4.1
 - JDK 21
-- compileSdk / targetSdk 36
+- compileSdk 37
+- targetSdk 36
 - minSdk 26
 
 仓库自带 GitHub Actions，push / PR 后会构建 `app-debug.apk` 并上传为 `HookWeb-debug` artifact。
