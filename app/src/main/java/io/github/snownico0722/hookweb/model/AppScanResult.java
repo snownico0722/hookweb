@@ -44,6 +44,20 @@ public final class AppScanResult {
         return !evidence.isEmpty();
     }
 
+    public boolean hasRuntimeEvidence() {
+        for (EngineEvidence item : evidence) {
+            if (item.source != EngineEvidence.Source.STATIC_APK) return true;
+        }
+        return false;
+    }
+
+    public boolean hasRuntimeEngine(EngineKind engine) {
+        for (EngineEvidence item : evidence) {
+            if (item.engine == engine && item.source != EngineEvidence.Source.STATIC_APK) return true;
+        }
+        return false;
+    }
+
     public AppScanResult withExtraEvidence(List<EngineEvidence> extra) {
         ArrayList<EngineEvidence> merged = new ArrayList<>(evidence);
         outer:
@@ -58,5 +72,13 @@ public final class AppScanResult {
             merged.add(candidate);
         }
         return new AppScanResult(label, packageName, systemApp, apkPaths, merged, error);
+    }
+
+    public AppScanResult withoutEvidenceSource(EngineEvidence.Source source) {
+        ArrayList<EngineEvidence> kept = new ArrayList<>();
+        for (EngineEvidence item : evidence) {
+            if (item.source != source) kept.add(item);
+        }
+        return new AppScanResult(label, packageName, systemApp, apkPaths, kept, error);
     }
 }
