@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 
 final class BytePatternScanner {
     private static final int BUFFER_SIZE = 128 * 1024;
@@ -15,7 +17,11 @@ final class BytePatternScanner {
 
     private BytePatternScanner() {}
 
-    static Map<EngineKind, String> scan(InputStream input, long maxBytes) throws IOException {
+    static Map<EngineKind, String> scan(
+            InputStream input,
+            long maxBytes,
+            BooleanSupplier cancelled
+    ) throws IOException {
         EnumMap<EngineKind, String> found = new EnumMap<>(EngineKind.class);
         EnumSet<EngineKind> remaining = EnumSet.copyOf(EngineCatalog.DEX_PATTERNS.keySet());
         byte[] buffer = new byte[BUFFER_SIZE];
@@ -24,6 +30,7 @@ final class BytePatternScanner {
         long total = 0;
 
         while (!remaining.isEmpty() && total < maxBytes) {
+            checkCancelled(cancelled);
             int limit = (int) Math.min(buffer.length, maxBytes - total);
             int count = input.read(buffer, 0, limit);
             if (count < 0) break;
@@ -48,5 +55,12 @@ final class BytePatternScanner {
             System.arraycopy(combined, combined.length - overlapLength, overlap, 0, overlapLength);
         }
         return found;
+    }
+
+    private static void checkCancelled(BooleanSupplier cancelled) {
+        if (Thread.currentThread().isInterrupted()
+                || (cancelled != null && cancelled.getAsBoolean())) {
+            throw new CancellationException("scan cancelled");
+        }
     }
 }
