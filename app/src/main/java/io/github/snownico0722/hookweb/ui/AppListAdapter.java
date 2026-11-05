@@ -57,7 +57,7 @@ public final class AppListAdapter extends BaseAdapter {
 
         private static boolean hasThirdPartyRuntime(AppScanResult item) {
             for (EngineEvidence evidence : item.evidence()) {
-                if (evidence.source != EngineEvidence.Source.STATIC_APK
+                if (evidence.isRuntimeCore()
                         && evidence.engine != EngineKind.SYSTEM_WEBVIEW) {
                     return true;
                 }
@@ -166,18 +166,24 @@ public final class AppListAdapter extends BaseAdapter {
         return false;
     }
 
-    private static String summary(AppScanResult item) {
+    static String summary(AppScanResult item) {
         if (item.evidence().isEmpty()) {
             return item.error == null ? "未发现明显 Web 内核痕迹" : "扫描不完整 · " + item.error;
         }
-        LinkedHashMap<EngineKind, Boolean> runtime = new LinkedHashMap<>();
+        LinkedHashMap<EngineKind, Integer> confidence = new LinkedHashMap<>();
         for (EngineEvidence evidence : item.evidence()) {
-            boolean isRuntime = evidence.source != EngineEvidence.Source.STATIC_APK;
-            runtime.merge(evidence.engine, isRuntime, (a, b) -> a || b);
+            int level = evidence.isRuntimeCore() ? 2
+                    : evidence.source == EngineEvidence.Source.LSPOSED_WRAPPER ? 1 : 0;
+            confidence.merge(evidence.engine, level, Math::max);
         }
         ArrayList<String> parts = new ArrayList<>();
-        for (Map.Entry<EngineKind, Boolean> entry : runtime.entrySet()) {
-            parts.add((entry.getValue() ? "● " : "○ ") + entry.getKey().label);
+        for (Map.Entry<EngineKind, Integer> entry : confidence.entrySet()) {
+            String marker = switch (entry.getValue()) {
+                case 2 -> "● ";
+                case 1 -> "◇ ";
+                default -> "○ ";
+            };
+            parts.add(marker + entry.getKey().label);
         }
         return String.join("   ", parts);
     }

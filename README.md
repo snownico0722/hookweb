@@ -28,7 +28,7 @@ APK 扫描支持中途停止：
 - 点 **停止扫描** 后取消尚未开始的任务，并把已完成部分保存成“已停止”历史；
 - App 下次启动会自动恢复最近一次扫描，不需要每次重新全扫。
 
-历史记录使用 App 私有目录中的原子 JSON 快照，最多保留 12 次。历史可以重新载入，也可以单独清空，不影响当前页面结果和 Hook 运行记录。
+历史记录使用 App 私有目录中的原子 JSON 快照，最多保留 12 次。历史可以重新载入，也可以单独清空，不影响当前页面结果和 Hook 运行记录。Hook 记录由独立存储管理，载入历史时合并当前 Hook 记录；清空 Hook 记录后，旧快照中的 Hook 证据不会重新出现。
 
 ### 3. 筛选
 
@@ -73,13 +73,13 @@ HookWeb 会在已授权作用域的 App 中 Hook 常见 WebView 构造函数。�
 ```text
 京东
 ○ 腾讯 TBS / X5          APK 中集成 TBS
-● 腾讯 TBS / X5          实际创建了 TBS WebView
-● 系统 WebView           实际 native core 回退到了系统 WebView
+◇ 腾讯 TBS / X5          实际创建了 TBS WebView 包装层
+● 系统 WebView           检测到了系统 WebView 内核映射
 ```
 
-这比只看 APK 里有没有 `com.tencent.smtt` 更接近真实情况。
+`◇` 仅表示包装层已创建，`●` 表示检测到内核映射。“运行时已确认”和“运行时第三方”筛选只统计内核映射，不会因为创建了 TBS 包装层就判定实际加载了 X5 内核。映射证据表示进程加载过该内核，不单独证明当前页面正在使用它。
 
-Android 14+ 上，HookWeb 还会校验运行事件广播的原始发送 UID 是否属于上报的包名，降低其他 App 伪造 `●` 结果的可能性；更旧 Android 仍应把 LSPosed 事件视为诊断证据，并优先与 ROOT maps 交叉验证。
+Android 14+ 上，上报端显式共享广播发送方身份，HookWeb 校验原始发送 UID 是否属于上报的包名，降低其他 App 伪造 `●` 结果的可能性；更旧 Android 仍应把 LSPosed 事件视为诊断证据，并优先与 ROOT maps 交叉验证。
 
 ## 使用流程
 
@@ -110,7 +110,7 @@ LSPosed 服务未连接时，APK 静态扫描、历史记录和 ROOT 运行时�
 
 ## 构建
 
-当前版本：`0.2.0`
+当前版本：`0.2.1`
 
 项目基于：
 
@@ -121,12 +121,12 @@ LSPosed 服务未连接时，APK 静态扫描、历史记录和 ROOT 运行时�
 - targetSdk 36
 - minSdk 26
 
-仓库自带 GitHub Actions，push / PR 后会构建 `app-debug.apk` 并上传为 `HookWeb-debug` artifact。
+仓库自带 GitHub Actions，push / PR 后会运行单元测试、构建 `app-debug.apk` 并上传为 `HookWeb-debug` artifact。
 
 本地有对应 Android SDK 时也可以直接运行：
 
 ```bash
-gradle :app:assembleDebug
+gradle :app:testDebugUnitTest :app:assembleDebug
 ```
 
 ## 下一步

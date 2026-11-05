@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.snownico0722.hookweb"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     buildTypes {
@@ -44,4 +44,5 @@ android {
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("io.github.libxposed:service:102.0.0")
+    testImplementation("junit:junit:4.13.2")
 }

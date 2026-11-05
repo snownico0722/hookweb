@@ -46,14 +46,14 @@ public final class AppScanResult {
 
     public boolean hasRuntimeEvidence() {
         for (EngineEvidence item : evidence) {
-            if (item.source != EngineEvidence.Source.STATIC_APK) return true;
+            if (item.isRuntimeCore()) return true;
         }
         return false;
     }
 
     public boolean hasRuntimeEngine(EngineKind engine) {
         for (EngineEvidence item : evidence) {
-            if (item.engine == engine && item.source != EngineEvidence.Source.STATIC_APK) return true;
+            if (item.engine == engine && item.isRuntimeCore()) return true;
         }
         return false;
     }
@@ -80,5 +80,17 @@ public final class AppScanResult {
             if (item.source != source) kept.add(item);
         }
         return new AppScanResult(label, packageName, systemApp, apkPaths, kept, error);
+    }
+
+    public AppScanResult withoutHookEvidence() {
+        ArrayList<EngineEvidence> kept = new ArrayList<>();
+        for (EngineEvidence item : evidence) {
+            if (!item.isHookEvidence()) kept.add(item);
+        }
+        return new AppScanResult(label, packageName, systemApp, apkPaths, kept, error);
+    }
+
+    public AppScanResult withCurrentHookEvidence(List<EngineEvidence> current) {
+        return withoutHookEvidence().withExtraEvidence(current);
     }
 }

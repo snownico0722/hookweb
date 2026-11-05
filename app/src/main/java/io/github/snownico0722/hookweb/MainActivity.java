@@ -67,6 +67,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
     private Button scopeButton;
     private XposedService xposedService;
     private volatile ScanSession activeScan;
+    private volatile boolean destroyed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -99,16 +100,23 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
         ScanSession session = activeScan;
         if (session != null) session.cancel();
         worker.shutdownNow();
         super.onDestroy();
     }
 
+    private void postUi(Runnable action) {
+        runOnUiThread(() -> {
+            if (!destroyed && !isFinishing()) action.run();
+        });
+    }
+
     @Override
     public void onServiceStateChanged(XposedService service) {
         xposedService = service;
-        runOnUiThread(() -> {
+        postUi(() -> {
             if (service == null) {
                 lspStatus.setText("LSPosed: 未连接（静态/ROOT 扫描仍可用）");
                 scopeButton.setEnabled(false);
@@ -136,7 +144,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("○ = APK 静态集成   ● = 运行时确认");
+        subtitle.setText("○ = 静态痕迹   ◇ = 包装层已创建   ● = 内核已加载");
         subtitle.setPadding(0, dp(4), 0, dp(8));
         root.addView(subtitle);
 
@@ -256,7 +264,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
             List<ScanHistoryStore.Snapshot> snapshots = historyStore.list();
             ScanHistoryStore.Snapshot latest = snapshots.isEmpty() ? null : snapshots.get(0);
             int historyCount = snapshots.size();
-            runOnUiThread(() -> {
+            postUi(() -> {
                 historyButton.setText("历史记录" + (historyCount > 0 ? " (" + historyCount + ")" : ""));
                 if (latest == null) {
                     progressStatus.setText("尚未扫描");
@@ -271,7 +279,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         progressStatus.setText("正在请求 ROOT…");
         worker.execute(() -> {
             boolean ok = rootShell.requestRoot();
-            runOnUiThread(() -> {
+            postUi(() -> {
                 rootStatus.setText(ok ? "ROOT: 已授权" : "ROOT: 未授权 / su 不可用");
                 progressStatus.setText(ok ? "ROOT 可用" : "可继续静态扫描，但受 APK/运行进程访问限制");
             });
@@ -303,7 +311,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         try {
             if (!rootShell.isRootAvailable() && !session.cancelled.get()) {
                 boolean root = rootShell.requestRoot();
-                runOnUiThread(() -> rootStatus.setText(root ? "ROOT: 已授权" : "ROOT: 未授权 / su 不可用"));
+                postUi(() -> rootStatus.setText(root ? "ROOT: 已授权" : "ROOT: 未授权 / su 不可用"));
             }
             if (session.cancelled.get()) throw new CancellationException();
 
@@ -315,7 +323,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
             total = apps.size();
             session.total = total;
             final int totalForUi = total;
-            runOnUiThread(() -> progressStatus.setText("扫描 0 / " + totalForUi));
+            postUi(() -> progressStatus.setText("扫描 0 / " + totalForUi));
 
             int threads = Math.min(3, Math.max(1, Runtime.getRuntime().availableProcessors() / 2));
             int window = Math.max(threads, threads * 2);
@@ -339,7 +347,6 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
                 try {
                     AppScanResult result = future.get();
                     if (result != null) {
-                        result = result.withExtraEvidence(RuntimeEventStore.get(this, result.packageName));
                         scanned.add(result);
                     }
                     done++;
@@ -393,15 +400,10 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
         sortResults(scanned);
         ScanHistoryStore.Snapshot snapshot = saveSnapshotQuietly(session, finalStatus, scanned, done, total);
-        synchronized (results) {
-            results.clear();
-            results.addAll(scanned);
-        }
-
         String statusForUi = finalStatus;
         String errorForUi = failureMessage;
-        runOnUiThread(() -> {
-            adapter.setItems(scanned);
+        postUi(() -> {
+            displayResults(scanned);
             if (ScanHistoryStore.COMPLETED.equals(statusForUi)) {
                 progressStatus.setText("完成 · " + scanned.size() + " 个 App · " + countDetected(scanned) + " 个有 Web 内核痕迹");
             } else if (ScanHistoryStore.STOPPED.equals(statusForUi)) {
@@ -418,14 +420,9 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
     private void publishScanProgress(List<AppScanResult> scanned, int done, int total) {
         ArrayList<AppScanResult> snapshot = new ArrayList<>(scanned);
-        sortResults(snapshot);
-        synchronized (results) {
-            results.clear();
-            results.addAll(snapshot);
-        }
         int detected = countDetected(snapshot);
-        runOnUiThread(() -> {
-            adapter.setItems(snapshot);
+        postUi(() -> {
+            displayResults(snapshot);
             progressStatus.setText("扫描 " + done + " / " + total + " · 已发现 " + detected + " 个 Web 候选");
         });
     }
@@ -473,7 +470,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         progressStatus.setText("读取历史记录…");
         worker.execute(() -> {
             List<ScanHistoryStore.Snapshot> snapshots = historyStore.list();
-            runOnUiThread(() -> {
+            postUi(() -> {
                 if (snapshots.isEmpty()) {
                     progressStatus.setText("没有历史扫描记录");
                     Toast.makeText(this, "没有历史扫描记录", Toast.LENGTH_SHORT).show();
@@ -498,7 +495,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
                 .setMessage("只删除历史快照；当前屏幕上的结果和 Hook 运行记录不会被清除。")
                 .setPositiveButton("清空", (dialog, which) -> worker.execute(() -> {
                     historyStore.clear();
-                    runOnUiThread(() -> {
+                    postUi(() -> {
                         historyButton.setText("历史记录");
                         progressStatus.setText("扫描历史已清空；当前结果仍保留");
                     });
@@ -508,13 +505,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
     }
 
     private void applySnapshot(ScanHistoryStore.Snapshot snapshot, boolean fromHistoryPicker) {
-        ArrayList<AppScanResult> copy = new ArrayList<>(snapshot.results);
-        sortResults(copy);
-        synchronized (results) {
-            results.clear();
-            results.addAll(copy);
-        }
-        adapter.setItems(copy);
+        displayResults(snapshot.results);
         includeSystem.setChecked(snapshot.includeSystem);
         scanButton.setText("重新扫描 APK");
 
@@ -532,7 +523,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
     private void refreshHistoryCount() {
         worker.execute(() -> {
             int count = historyStore.list().size();
-            runOnUiThread(() -> historyButton.setText("历史记录" + (count > 0 ? " (" + count + ")" : "")));
+            postUi(() -> historyButton.setText("历史记录" + (count > 0 ? " (" + count + ")" : "")));
         });
     }
 
@@ -562,7 +553,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         runtimeButton.setEnabled(false);
         worker.execute(() -> {
             if (!rootShell.isRootAvailable() && !rootShell.requestRoot()) {
-                runOnUiThread(() -> {
+                postUi(() -> {
                     progressStatus.setText("运行进程扫描需要 ROOT");
                     runtimeButton.setEnabled(true);
                 });
@@ -575,16 +566,10 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
             for (AppScanResult item : snapshot) {
                 AppScanResult value = item.withoutEvidenceSource(EngineEvidence.Source.ROOT_MAPS);
                 value = value.withExtraEvidence(runtime.getOrDefault(item.packageName, Collections.emptyList()));
-                value = value.withExtraEvidence(RuntimeEventStore.get(this, item.packageName));
                 merged.add(value);
             }
-            sortResults(merged);
-            synchronized (results) {
-                results.clear();
-                results.addAll(merged);
-            }
-            runOnUiThread(() -> {
-                adapter.setItems(merged);
+            postUi(() -> {
+                displayResults(merged);
                 progressStatus.setText("运行时扫描完成 · " + runtime.size() + " 个运行 App 命中内核映射");
                 runtimeButton.setEnabled(true);
             });
@@ -612,7 +597,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
             service.requestScope(targets, new XposedService.OnScopeEventListener() {
                 @Override
                 public void onScopeRequestApproved(List<String> approved) {
-                    runOnUiThread(() -> {
+                    postUi(() -> {
                         progressStatus.setText("LSPosed 已批准 " + approved.size() + " 个作用域；重新打开目标 App 后会记录实际 WebView 创建");
                         Toast.makeText(MainActivity.this, "作用域已更新", Toast.LENGTH_SHORT).show();
                     });
@@ -620,7 +605,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
                 @Override
                 public void onScopeRequestFailed(String message) {
-                    runOnUiThread(() -> progressStatus.setText("LSPosed 作用域申请失败: " + message));
+                    postUi(() -> progressStatus.setText("LSPosed 作用域申请失败: " + message));
                 }
             });
         } catch (Throwable t) {
@@ -630,30 +615,25 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
     private void mergeStoredRuntimeEvents() {
         if (adapter == null || activeScan != null) return;
-        ArrayList<AppScanResult> merged = new ArrayList<>();
-        synchronized (results) {
-            if (results.isEmpty()) return;
-            for (AppScanResult item : results) {
-                merged.add(item.withExtraEvidence(RuntimeEventStore.get(this, item.packageName)));
-            }
-            sortResults(merged);
-            results.clear();
-            results.addAll(merged);
-        }
-        adapter.setItems(merged);
+        displayResults(new ArrayList<>(results));
     }
 
     private void rebuildWithoutRuntimeEvidence() {
-        ArrayList<AppScanResult> cleaned = new ArrayList<>();
-        synchronized (results) {
-            for (AppScanResult item : results) {
-                cleaned.add(item.withoutEvidenceSource(EngineEvidence.Source.LSPOSED_RUNTIME));
-            }
-            results.clear();
-            results.addAll(cleaned);
+        displayResults(new ArrayList<>(results));
+    }
+
+    // Apply on the UI thread so a completed scan cannot reintroduce cleared Hook records.
+    private void displayResults(List<AppScanResult> items) {
+        ArrayList<AppScanResult> current = new ArrayList<>();
+        for (AppScanResult item : items) {
+            current.add(item.withCurrentHookEvidence(RuntimeEventStore.get(this, item.packageName)));
         }
-        sortResults(cleaned);
-        adapter.setItems(cleaned);
+        sortResults(current);
+        synchronized (results) {
+            results.clear();
+            results.addAll(current);
+        }
+        adapter.setItems(current);
     }
 
     private List<ApplicationInfo> installedApplications() {

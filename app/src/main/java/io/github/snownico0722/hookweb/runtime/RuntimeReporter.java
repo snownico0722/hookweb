@@ -1,8 +1,10 @@
 package io.github.snownico0722.hookweb.runtime;
 
+import android.app.BroadcastOptions;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Process;
 
 import io.github.snownico0722.hookweb.model.EngineKind;
@@ -50,8 +52,14 @@ public final class RuntimeReporter {
                     .putExtra(RuntimeEventReceiver.EXTRA_PROCESS, processName)
                     .putExtra(RuntimeEventReceiver.EXTRA_ENGINE, engine.code)
                     .putExtra(RuntimeEventReceiver.EXTRA_SOURCE, source);
-            context.sendBroadcast(intent);
+            if (Build.VERSION.SDK_INT >= 34) {
+                BroadcastOptions options = BroadcastOptions.makeBasic().setShareIdentityEnabled(true);
+                context.sendBroadcast(intent, null, options.toBundle());
+            } else {
+                context.sendBroadcast(intent);
+            }
         } catch (Throwable ignored) {
+            SENT.remove(key);
         }
     }
 

@@ -209,6 +209,8 @@ public final class ScanHistoryStore {
 
         JSONArray evidence = new JSONArray();
         for (EngineEvidence itemEvidence : item.evidence()) {
+            // Hook records have their own store and must respect its clear operation.
+            if (itemEvidence.isHookEvidence()) continue;
             JSONObject value = new JSONObject();
             value.put("engine", itemEvidence.engine.code);
             value.put("source", itemEvidence.source.name());
@@ -267,7 +269,8 @@ public final class ScanHistoryStore {
                 } catch (IllegalArgumentException ignored) {
                     source = EngineEvidence.Source.STATIC_APK;
                 }
-                evidence.add(new EngineEvidence(engine, source, evidenceValue.optString("detail", "")));
+                EngineEvidence itemEvidence = new EngineEvidence(engine, source, evidenceValue.optString("detail", ""));
+                if (!itemEvidence.isHookEvidence()) evidence.add(itemEvidence);
             }
         }
 
