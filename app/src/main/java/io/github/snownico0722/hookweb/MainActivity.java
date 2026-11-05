@@ -405,9 +405,9 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         postUi(() -> {
             displayResults(scanned);
             if (ScanHistoryStore.COMPLETED.equals(statusForUi)) {
-                progressStatus.setText("完成 · " + scanned.size() + " 个 App · " + countDetected(scanned) + " 个有 Web 内核痕迹");
+                progressStatus.setText("完成 · " + scanned.size() + " 个 App · " + countDetected(results) + " 个有 Web 内核痕迹");
             } else if (ScanHistoryStore.STOPPED.equals(statusForUi)) {
-                progressStatus.setText("已停止并保存 · 已扫描 " + scanned.size() + " / " + session.total + " · 命中 " + countDetected(scanned));
+                progressStatus.setText("已停止并保存 · 已扫描 " + scanned.size() + " / " + session.total + " · 命中 " + countDetected(results));
             } else {
                 progressStatus.setText("扫描失败，已保存部分结果" + (errorForUi == null ? "" : " · " + errorForUi));
             }
@@ -420,9 +420,9 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
 
     private void publishScanProgress(List<AppScanResult> scanned, int done, int total) {
         ArrayList<AppScanResult> snapshot = new ArrayList<>(scanned);
-        int detected = countDetected(snapshot);
         postUi(() -> {
             displayResults(snapshot);
+            int detected = countDetected(results);
             progressStatus.setText("扫描 " + done + " / " + total + " · 已发现 " + detected + " 个 Web 候选");
         });
     }
@@ -517,7 +517,7 @@ public final class MainActivity extends Activity implements HookWebApp.ServiceSt
         };
         progressStatus.setText((fromHistoryPicker ? "已载入历史 · " : "已恢复上次结果 · ")
                 + state + " · " + snapshot.scannedApps + "/" + snapshot.totalApps
-                + " · 命中 " + snapshot.detectedCount());
+                + " · 命中 " + countDetected(results));
     }
 
     private void refreshHistoryCount() {
